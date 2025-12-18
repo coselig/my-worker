@@ -36,13 +36,13 @@ async function handleHealth(request, env) {
 
 async function handleLogin(request, env) {
 	const body = await request.json().catch(() => null);
-	if (!body?.username || !body?.password) {
+	if (!body?.email || !body?.password) {
 		return jsonResponse({ error: "Missing fields" }, 400);
 	}
-	const { username, password } = body;
+	const { email, password } = body;
 	const user = await env.DB
-		.prepare("SELECT id, username, password FROM users WHERE username = ?")
-		.bind(username)
+		.prepare("SELECT id, name, email, password, role FROM users WHERE email = ?")
+		.bind(email)
 		.first();
 	if (!user || user.password !== password) {
 		return jsonResponse({ error: "Invalid credentials" }, 401);
@@ -53,7 +53,7 @@ async function handleLogin(request, env) {
 		.prepare("INSERT INTO sessions (id, user_id, expires_at) VALUES (?, ?, ?)")
 		.bind(sessionId, user.id, expires)
 		.run();
-	return new Response(JSON.stringify({ ok: true, user: { id: user.id, username: user.username } }), {
+	return new Response(JSON.stringify({ ok: true, user: { id: user.id, name: user.name, email: user.email, role: user.role } }), {
 		status: 200,
 		headers: {
 			...corsHeaders(),
@@ -76,7 +76,7 @@ async function handleMe(request, env) {
 		return jsonResponse({ error: "Session expired" }, 401);
 	}
 	const user = await env.DB
-		.prepare("SELECT id, username FROM users WHERE id = ?")
+		.prepare("SELECT id, name, email, role FROM users WHERE id = ?")
 		.bind(session.user_id)
 		.first();
 	return jsonResponse({ ok: true, user });
@@ -101,24 +101,24 @@ async function handleLogout(request, env) {
 
 async function handleRegister(request, env) {
 	const body = await request.json().catch(() => null);
-	if (!body?.username || !body?.password) {
+	if (!body?.name || !body?.email || !body?.password || !body?.role) {
 		return jsonResponse({ error: "Missing fields" }, 400);
 	}
-	const { username, password } = body;
+	const { name, email, password, role } = body;
 	const existing = await env.DB
-		.prepare("SELECT id FROM users WHERE username = ?")
-		.bind(username)
+		.prepare("SELECT id FROM users WHERE email = ?")
+		.bind(email)
 		.first();
 	if (existing) {
-		return jsonResponse({ error: "Username already exists" }, 409);
+		return jsonResponse({ error: "Email already exists" }, 409);
 	}
 	const result = await env.DB
-		.prepare("INSERT INTO users (username, password) VALUES (?, ?)")
-		.bind(username, password)
+		.prepare("INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)")
+		.bind(name, email, password, role)
 		.run();
 	return jsonResponse({
 		ok: true,
-		user: { id: result.lastInsertRowid, username },
+		user: { id: result.lastInsertRowid, name, email, role },
 	}, 201);
 }
 
