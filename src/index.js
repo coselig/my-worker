@@ -3,9 +3,13 @@
  */
 
 function corsHeaders(request) {
-	const origin = request.headers.get("Origin");
+	// 防呆：request 為 undefined 時允許所有來源
+	let origin = "*";
+	if (request && request.headers && typeof request.headers.get === 'function') {
+		origin = request.headers.get("Origin") ?? "*";
+	}
 	return {
-		"Access-Control-Allow-Origin": origin ?? "",
+		"Access-Control-Allow-Origin": origin,
 		"Access-Control-Allow-Methods": "GET, POST, OPTIONS",
 		"Access-Control-Allow-Headers": "Content-Type",
 		"Access-Control-Allow-Credentials": "true",
@@ -13,6 +17,7 @@ function corsHeaders(request) {
 }
 
 function jsonResponse(data, status = 200, request) {
+	// 保證 request 不為 undefined
 	return new Response(JSON.stringify(data), {
 		status,
 		headers: {
@@ -36,14 +41,22 @@ async function handleHealth(request, env) {
 
 async function handleLogin(request, env) {
 	const body = await request.json().catch(() => null);
-	if (!body?.email || !body?.password) {
+	if ((!body?.email && !body?.name) || !body?.password) {
 		return jsonResponse({ error: "Missing fields" }, 400, request);
 	}
-	const { email, password } = body;
-	const user = await env.DB
-		.prepare("SELECT id, name, email, password, role FROM users WHERE email = ?")
-		.bind(email)
-		.first();
+	const { email, name, password } = body;
+	let user;
+	if (email) {
+		user = await env.DB
+			.prepare("SELECT id, name, email, password, role FROM users WHERE email = ?")
+			.bind(email)
+			.first();
+	} else if (name) {
+		user = await env.DB
+			.prepare("SELECT id, name, email, password, role FROM users WHERE name = ?")
+			.bind(name)
+			.first();
+	}
 	if (!user) {
 		return jsonResponse({ error: "User not found" }, 401, request);
 	}
@@ -85,6 +98,10 @@ async function handleMe(request, env) {
 		.prepare("SELECT id, name, email, role FROM users WHERE id = ?")
 		.bind(session.user_id)
 		.first();
+	// 確保 user 物件有 id 欄位
+	if (user && !('id' in user)) {
+		user.id = session.user_id;
+	}
 	return jsonResponse({ ok: true, user }, 200, request);
 }
 
@@ -129,50 +146,68 @@ async function handleRegister(request, env) {
 }
 
 async function checkIn(request, env) {
-	const { user_id } = await request.json();
-	const today = new Date().toISOString().slice(0, 10);
-	// 先查詢今天是否有紀錄
-	const record = await env.DB.prepare(`
-		SELECT id FROM attendance WHERE user_id = ? AND work_date = ?
-	`).bind(user_id, today).first();
-	if (record) {
-		// 有紀錄就更新 check_in_time
-		await env.DB.prepare(`
-			UPDATE attendance SET check_in_time = datetime('now'), updated_at = CURRENT_TIMESTAMP
-			WHERE user_id = ? AND work_date = ?
-		`).bind(user_id, today).run();
-		return jsonResponse({ message: '補打卡成功（已更新）' });
-	} else {
-		// 沒有就插入新紀錄
-		await env.DB.prepare(`
-			INSERT INTO attendance (user_id, work_date, check_in_time)
-			VALUES (?, ?, datetime('now'))
-		`).bind(user_id, today).run();
-		return jsonResponse({ message: '打卡成功' });
+	try {
+		const body = await request.json().catch(() => null);
+		const user_id = body?.user_id;
+		if (!user_id) {
+			return jsonResponse({ error: '缺少 user_id' }, 400, request);
+		}
+		const today = new Date().toISOString().slice(0, 10);
+		// 先查詢今天是否有紀錄
+		const record = await env.DB.prepare(`
+			SELECT id FROM attendance WHERE user_id = ? AND work_date = ?
+		`).bind(user_id, today).first();
+		if (record) {
+			// 有紀錄就更新 check_in_time
+			await env.DB.prepare(`
+				UPDATE attendance SET check_in_time = datetime('now'), updated_at = CURRENT_TIMESTAMP
+				WHERE user_id = ? AND work_date = ?
+			`).bind(user_id, today).run();
+			return jsonResponse({ message: '補打卡成功（已更新）' });
+		} else {
+			// 沒有就插入新紀錄
+			await env.DB.prepare(`
+				INSERT INTO attendance (user_id, work_date, check_in_time)
+				VALUES (?, ?, datetime('now'))
+			`).bind(user_id, today).run();
+			return jsonResponse({ message: '打卡成功' });
+		}
+	} catch (err) {
+		console.error('checkIn error:', err);
+		return jsonResponse({ error: 'Internal Server Error', detail: err?.message ?? String(err) }, 500, request);
 	}
 }
 
 async function checkOut(request, env) {
-	const { user_id } = await request.json();
-	const today = new Date().toISOString().slice(0, 10);
-	// 先查詢今天是否有紀錄
-	const record = await env.DB.prepare(`
-		SELECT id FROM attendance WHERE user_id = ? AND work_date = ?
-	`).bind(user_id, today).first();
-	if (record) {
-		// 有紀錄就更新 check_out_time
-		await env.DB.prepare(`
-			UPDATE attendance SET check_out_time = datetime('now'), updated_at = CURRENT_TIMESTAMP
-			WHERE user_id = ? AND work_date = ?
-		`).bind(user_id, today).run();
-		return jsonResponse({ message: '補下班打卡成功（已更新）' });
-	} else {
-		// 沒有就插入新紀錄（只設 check_out_time）
-		await env.DB.prepare(`
-			INSERT INTO attendance (user_id, work_date, check_out_time)
-			VALUES (?, ?, datetime('now'))
-		`).bind(user_id, today).run();
-		return jsonResponse({ message: '下班打卡成功' });
+	try {
+		const body = await request.json().catch(() => null);
+		const user_id = body?.user_id;
+		if (!user_id) {
+			return jsonResponse({ error: '缺少 user_id' }, 400, request);
+		}
+		const today = new Date().toISOString().slice(0, 10);
+		// 先查詢今天是否有紀錄
+		const record = await env.DB.prepare(`
+			SELECT id FROM attendance WHERE user_id = ? AND work_date = ?
+		`).bind(user_id, today).first();
+		if (record) {
+			// 有紀錄就更新 check_out_time
+			await env.DB.prepare(`
+				UPDATE attendance SET check_out_time = datetime('now'), updated_at = CURRENT_TIMESTAMP
+				WHERE user_id = ? AND work_date = ?
+			`).bind(user_id, today).run();
+			return jsonResponse({ message: '補下班打卡成功（已更新）' }, 200, request);
+		} else {
+			// 沒有就插入新紀錄（只設 check_out_time）
+			await env.DB.prepare(`
+				INSERT INTO attendance (user_id, work_date, check_out_time)
+				VALUES (?, ?, datetime('now'))
+			`).bind(user_id, today).run();
+			return jsonResponse({ message: '下班打卡成功' }, 200, request);
+		}
+	} catch (err) {
+		console.error('checkOut error:', err);
+		return jsonResponse({ error: 'Internal Server Error', detail: err?.message ?? String(err) }, 500, request);
 	}
 }
 
