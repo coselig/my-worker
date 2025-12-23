@@ -105,6 +105,36 @@ async function handleMe(request, env) {
 	return jsonResponse({ ok: true, user }, 200, request);
 }
 
+async function handleEmployees(request, env) {
+	const cookie = request.headers.get("Cookie") || "";
+	const match = cookie.match(/session_id=([a-zA-Z0-9-]+)/);
+	if (!match) return jsonResponse({ error: "Not logged in" }, 401, request);
+	const sessionId = match[1];
+	const session = await env.DB
+		.prepare("SELECT user_id, expires_at FROM sessions WHERE id = ?")
+		.bind(sessionId)
+		.first();
+	if (!session || new Date(session.expires_at) < new Date()) {
+		return jsonResponse({ error: "Session expired" }, 401, request);
+	}
+
+	// 檢查用戶是否為管理員
+	const user = await env.DB
+		.prepare("SELECT role FROM users WHERE id = ?")
+		.bind(session.user_id)
+		.first();
+	if (!user || user.role !== 'admin') {
+		return jsonResponse({ error: "Access denied. Admin only." }, 403, request);
+	}
+
+	// 獲取所有員工
+	const employees = await env.DB
+		.prepare("SELECT id, name, email, role FROM users WHERE role = 'employee' ORDER BY name")
+		.all();
+
+	return jsonResponse({ employees: employees.results }, 200, request);
+}
+
 async function handleLogout(request, env) {
 	const cookie = request.headers.get("Cookie") || "";
 	const match = cookie.match(/session_id=([a-zA-Z0-9-]+)/);
@@ -222,11 +252,62 @@ async function getToday(request, env) {
 	return jsonResponse(record ?? {}, 200, request);
 }
 
+async function getMonth(request, env) {
+	const cookie = request.headers.get("Cookie") || "";
+	const match = cookie.match(/session_id=([a-zA-Z0-9-]+)/);
+	if (!match) return jsonResponse({ error: "Not logged in" }, 401, request);
+	const sessionId = match[1];
+	const session = await env.DB
+		.prepare("SELECT user_id, expires_at FROM sessions WHERE id = ?")
+		.bind(sessionId)
+		.first();
+	if (!session || new Date(session.expires_at) < new Date()) {
+		return jsonResponse({ error: "Session expired" }, 401, request);
+	}
+
+	const url = new URL(request.url);
+	const requestedUserId = url.searchParams.get('user_id');
+
+	// 檢查權限：只有管理員可以查看其他員工的記錄
+	if (requestedUserId !== session.user_id.toString()) {
+		const currentUser = await env.DB
+			.prepare("SELECT role FROM users WHERE id = ?")
+			.bind(session.user_id)
+			.first();
+		if (!currentUser || currentUser.role !== 'admin') {
+			return jsonResponse({ error: "Access denied. Can only view own records." }, 403, request);
+		}
+	}
+
+	const year = parseInt(url.searchParams.get('year'));
+	const month = parseInt(url.searchParams.get('month'));
+	const startDate = new Date(year, month - 1, 1).toISOString().slice(0, 10);
+	const endDate = new Date(year, month, 1).toISOString().slice(0, 10);
+	const records = await env.DB.prepare(`
+        SELECT work_date, check_in_time, check_out_time
+        FROM attendance
+        WHERE user_id = ? AND work_date >= ? AND work_date < ?
+        ORDER BY work_date
+    `).bind(requestedUserId, startDate, endDate).all();
+	const formattedRecords = records.results.map(record => {
+		const date = new Date(record.work_date);
+		const day = date.getDate();
+		return {
+			day: day,
+			check_in_time: record.check_in_time,
+			check_out_time: record.check_out_time
+		};
+	});
+	return jsonResponse({ records: formattedRecords }, 200, request);
+}
+
 // 路由表
 const routes = {
 	GET: {
 		"/api/health": handleHealth,
 		"/api/me": handleMe,
+		"/api/employees": handleEmployees,
+		"/api/attendance/month": getMonth,
 	},
 	POST: {
 		"/api/login": handleLogin,
