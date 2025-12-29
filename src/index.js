@@ -135,6 +135,100 @@ async function handleEmployees(request, env) {
 	return jsonResponse({ employees: employees.results }, 200, request);
 }
 
+async function handleWorkingStaff(request, env) {
+	const cookie = request.headers.get("Cookie") || "";
+	const match = cookie.match(/session_id=([a-zA-Z0-9-]+)/);
+	if (!match) return jsonResponse({ error: "Not logged in" }, 401, request);
+	const sessionId = match[1];
+	const session = await env.DB
+		.prepare("SELECT user_id, expires_at FROM sessions WHERE id = ?")
+		.bind(sessionId)
+		.first();
+	if (!session || new Date(session.expires_at) < new Date()) {
+		return jsonResponse({ error: "Session expired" }, 401, request);
+	}
+
+	// 獲取正在工作的員工（有 check_in 但沒有 check_out 的）
+	const workingStaff = await env.DB
+		.prepare(`
+			SELECT DISTINCT a.user_id, u.name, MIN(a.check_in_time) as check_in_time
+			FROM attendance a
+			JOIN users u ON a.user_id = u.id
+			WHERE a.work_date = date('now')
+			AND a.check_in_time IS NOT NULL
+			AND a.check_out_time IS NULL
+			GROUP BY a.user_id, u.name
+			ORDER BY u.name
+		`)
+		.all();
+
+	return jsonResponse({ working_staff: workingStaff.results }, 200, request);
+}
+
+async function handleManualPunch(request, env) {
+	const cookie = request.headers.get("Cookie") || "";
+	const match = cookie.match(/session_id=([a-zA-Z0-9-]+)/);
+	if (!match) return jsonResponse({ error: "Not logged in" }, 401, request);
+	const sessionId = match[1];
+	const session = await env.DB
+		.prepare("SELECT user_id, expires_at FROM sessions WHERE id = ?")
+		.bind(sessionId)
+		.first();
+	if (!session || new Date(session.expires_at) < new Date()) {
+		return jsonResponse({ error: "Session expired" }, 401, request);
+	}
+
+	// 檢查用戶是否為管理員
+	const user = await env.DB
+		.prepare("SELECT role FROM users WHERE id = ?")
+		.bind(session.user_id)
+		.first();
+	if (!user || user.role !== 'admin') {
+		return jsonResponse({ error: "Access denied. Admin only." }, 403, request);
+	}
+
+	const body = await request.json().catch(() => null);
+	if (!body?.employee_id || !body?.date || !body?.periods) {
+		return jsonResponse({ error: "Missing fields" }, 400, request);
+	}
+	const { employee_id, date, periods } = body;
+
+	// 為每個 period 更新或插入記錄
+	for (const [period, times] of Object.entries(periods)) {
+		const checkIn = times.check_in;
+		const checkOut = times.check_out;
+
+		// 檢查是否已有記錄
+		const existing = await env.DB
+			.prepare("SELECT id FROM attendance WHERE user_id = ? AND work_date = ? AND period = ?")
+			.bind(employee_id, date, period)
+			.first();
+
+		if (existing) {
+			// 更新
+			await env.DB
+				.prepare(`
+					UPDATE attendance 
+					SET check_in_time = ?, check_out_time = ?, updated_at = strftime('%Y-%m-%d %H:%M:%S', datetime('now'))
+					WHERE user_id = ? AND work_date = ? AND period = ?
+				`)
+				.bind(checkIn, checkOut, employee_id, date, period)
+				.run();
+		} else {
+			// 插入
+			await env.DB
+				.prepare(`
+					INSERT INTO attendance (user_id, work_date, period, check_in_time, check_out_time)
+					VALUES (?, ?, ?, ?, ?)
+				`)
+				.bind(employee_id, date, period, checkIn, checkOut)
+				.run();
+		}
+	}
+
+	return jsonResponse({ message: '補打卡成功' }, 200, request);
+}
+
 async function handleLogout(request, env) {
 	const cookie = request.headers.get("Cookie") || "";
 	const match = cookie.match(/session_id=([a-zA-Z0-9-]+)/);
@@ -321,12 +415,14 @@ const routes = {
 		"/api/health": handleHealth,
 		"/api/me": handleMe,
 		"/api/employees": handleEmployees,
+		"/api/working-staff": handleWorkingStaff,
 		"/api/attendance/month": getMonth,
 	},
 	POST: {
 		"/api/login": handleLogin,
 		"/api/logout": handleLogout,
 		"/api/register": handleRegister,
+		"/api/manual-punch": handleManualPunch,
 	},
 };
 
