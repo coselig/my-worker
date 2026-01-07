@@ -15,5 +15,11 @@
 			"database_name": "employees_db",
 			"database_id": "5bd7f855-5174-4857-80e8-f88e435baa7c"
 		}
+	],
+	"kv_namespaces": [
+		{
+			"binding": "STATIC_ASSETS",
+			"id": "e7ff4caa1f96456aadc4c1c5bf71b584"
+		}
 	]
 }

@@ -7,6 +7,7 @@ export function corsHeaders(request) {
 	const allowedOrigins = [
 		"https://staff.coselig.com",
 		"https://staff-portal.coseligtest.workers.dev",
+		"https://9b3a7fe9.coselig-staff-portal-frontend.pages.dev",
 	];
 
 	let origin = request.headers.get("Origin");
@@ -37,5 +38,5 @@ export function generateSessionId() {
 }
 
 export function setCookie(name, value, maxAge = 3600) {
-	return `${name}=${value}; Path=/; Max-Age=${maxAge}; HttpOnly; SameSite=Lax`;
+	return `${name}=${value}; Path=/; Max-Age=${maxAge}; HttpOnly; SameSite=None; Secure`;
 }

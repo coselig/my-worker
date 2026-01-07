@@ -7,6 +7,7 @@ import { handleLogin, handleMe, handleLogout, handleRegister } from './auth.js';
 import { handleEmployees, handleWorkingStaff } from './employees.js';
 import { handleManualPunch, checkIn, checkOut, getToday, getMonth } from './attendance.js';
 import { handleGetDevices, handleAddDevice, handleDeleteDevice, handleUpdateDevice, handleSaveConfiguration, handleLoadConfiguration, handleGetConfigurations, handleDeleteConfiguration } from './discovery.js';
+import { getAssetFromKV } from '@cloudflare/kv-asset-handler';
 
 // Handler functions
 async function handleHealth(request, env) {
@@ -66,7 +67,30 @@ export default {
 			if (handler) {
 				return await handler(request, env);
 			}
-			return jsonResponse({ error: "Not Found" }, 404, request);
+			// 如果不是 API 路由，嘗試服務靜態文件
+			let assetRequest = request;
+			if (url.pathname === '/') {
+				// 對於根路徑，返回 index.html
+				const newUrl = new URL(request.url);
+				newUrl.pathname = '/index.html';
+				assetRequest = new Request(newUrl, request);
+			}
+			try {
+				return await getAssetFromKV(
+					{ request: assetRequest },
+					{
+						ASSET_NAMESPACE: env.STATIC_ASSETS,
+						cacheControl: {
+							browserTTL: 60 * 60 * 24 * 30,
+							edgeTTL: 60 * 60 * 24 * 30,
+							bypassCache: false,
+						},
+					}
+				);
+			} catch (e) {
+			// 如果沒有找到靜態文件，返回 404
+				return jsonResponse({ error: "Not Found" }, 404, request);
+			}
 		} catch (err) {
 			return jsonResponse({ error: "Internal Server Error", detail: err?.message ?? String(err) }, 500, request);
 		}
