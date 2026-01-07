@@ -25,7 +25,7 @@ export async function handleLogin(request, env) {
 		return jsonResponse({ error: "Wrong password" }, 401, request);
 	}
 	const sessionId = generateSessionId();
-	const expires = new Date(Date.now() + 3600 * 1000).toISOString();
+	const expires = new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString();
 	// 先移除該 user 的所有舊 session
 	await env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(user.id).run();
 	// 再新增新 session
@@ -38,7 +38,7 @@ export async function handleLogin(request, env) {
 		headers: {
 			...corsHeaders(request),
 			"Content-Type": "application/json",
-			"Set-Cookie": setCookie("session_id", sessionId, 3600),
+			"Set-Cookie": setCookie("session_id", sessionId, 30 * 24 * 3600),
 		},
 	});
 }
