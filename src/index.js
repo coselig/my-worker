@@ -88,7 +88,30 @@ export default {
 					}
 				);
 			} catch (e) {
-			// 如果沒有找到靜態文件，返回 404
+				// SPA fallback: 如果找不到文件且不是 API 路由，返回 index.html
+				// 這樣前端路由（Flutter Router）就能接管並顯示正確的頁面
+				if (!url.pathname.startsWith('/api/')) {
+					try {
+						const indexUrl = new URL(request.url);
+						indexUrl.pathname = '/index.html';
+						const indexRequest = new Request(indexUrl, request);
+						return await getAssetFromKV(
+							{ request: indexRequest },
+							{
+								ASSET_NAMESPACE: env.STATIC_ASSETS,
+								cacheControl: {
+									browserTTL: 60 * 60 * 24 * 30,
+									edgeTTL: 60 * 60 * 24 * 30,
+									bypassCache: false,
+								},
+							}
+						);
+					} catch (indexError) {
+						// 如果連 index.html 都找不到，返回錯誤
+						return jsonResponse({ error: "Not Found" }, 404, request);
+					}
+				}
+				// 對於 API 路由，返回 404
 				return jsonResponse({ error: "Not Found" }, 404, request);
 			}
 		} catch (err) {
