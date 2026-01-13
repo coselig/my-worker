@@ -1,9 +1,15 @@
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
+  chinese_name TEXT,
   email TEXT UNIQUE NOT NULL,
   password TEXT NOT NULL,
   role TEXT NOT NULL DEFAULT 'employee', -- employee, manager, boss
+  job_title TEXT,
+  phone TEXT,
+  address TEXT,
+  bank_account TEXT,
+  is_active INTEGER DEFAULT 1, -- 1=在職, 0=離職
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
