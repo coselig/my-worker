@@ -16,10 +16,22 @@
 
 ```bash
 cd d:\workspace\coselig_staff_portal_frontend
-flutter build web --release
+flutter build web --release --build-name=0.1.1 --build-number=3
 ```
 
 這會在 `build/web/` 目錄中生成生產版本的前端文件。
+
+**版本參數說明**：
+
+- `--build-name`: 版本名稱（如 0.1.1），對應並同步到 pubspec.yaml 中的 version
+- `--build-number`: 構建編號（整數），每次部署遞增
+- **版本號自動讀取**：App 會自動從這些參數讀取版本號顯示在 AppBar，無需手動修改代碼
+
+**版本管理規則**：
+
+- 只需在 pubspec.yaml 修改 version，或使用 --build-name 參數覆蓋
+- App 啟動時會自動讀取版本信息並顯示
+- 建議每次部署時遞增 build-number
 
 ### 2. 生成資產清單
 
@@ -52,9 +64,12 @@ npx wrangler deploy
 
 ```batch
 @echo off
-echo Building frontend...
+set VERSION=0.1.1
+set BUILD_NUMBER=1
+
+echo Building frontend with version %VERSION%...
 cd d:\workspace\coselig_staff_portal_frontend
-call flutter build web --release
+call flutter build web --release --build-name=%VERSION% --build-number=%BUILD_NUMBER%
 
 echo Generating assets...
 cd d:\workspace\coselig_staff_portal_backend
@@ -66,11 +81,11 @@ npx wrangler kv bulk put assets.json --namespace-id e7ff4caa1f96456aadc4c1c5bf71
 echo Deploying Workers...
 npx wrangler deploy
 
-echo Deployment complete!
+echo Deployment complete! Version: %VERSION%
 pause
 ```
 
-將上述內容保存為 `deploy.bat` 並執行。
+將上述內容保存為 `deploy.bat` 並執行。每次部署前記得更新 `VERSION` 和 `BUILD_NUMBER` 變數。
 
 ## 配置說明
 
