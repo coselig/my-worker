@@ -7,6 +7,7 @@ import { handleLogin, handleMe, handleLogout, handleRegister } from './auth.js';
 import { handleEmployees, handleWorkingStaff } from './employees.js';
 import { handleManualPunch, checkIn, checkOut, getToday, getMonth, updatePeriodName } from './attendance.js';
 import { handleSaveConfiguration, handleLoadConfiguration, handleGetConfigurations, handleDeleteConfiguration } from './discovery.js';
+import { handleGetCurrentUser, handleGetAllUsers, handleGetUserById, handleUpdateCurrentUser } from './users.js';
 import { getAssetFromKV } from '@cloudflare/kv-asset-handler';
 
 // Handler functions
@@ -74,6 +75,8 @@ const routes = {
 		"/api/attendance/month": getMonth,
 		"/api/configurations": handleGetConfigurations,
 		"/api/configurations/load": handleLoadConfiguration,
+		"/api/users/me": handleGetCurrentUser,
+		"/api/users": handleGetAllUsers,
 	},
 	POST: {
 		"/api/login": handleLogin,
@@ -89,6 +92,7 @@ const routes = {
 	},
 	PUT: {
 		"/api/attendance/period": updatePeriodName,
+		"/api/users/me": handleUpdateCurrentUser,
 	},
 	DELETE: {
 		"/api/configurations": handleDeleteConfiguration,
@@ -123,6 +127,13 @@ export default {
 			if (handler) {
 				return await handler(request, env);
 			}
+
+			// 處理動態路由 /api/users/:id
+			const userIdMatch = url.pathname.match(/^\/api\/users\/(\d+)$/);
+			if (userIdMatch && request.method === 'GET') {
+				return await handleGetUserById(request, env, userIdMatch[1]);
+			}
+
 			// 如果不是 API 路由，嘗試服務靜態文件
 			let assetRequest = request;
 			if (url.pathname === '/') {
